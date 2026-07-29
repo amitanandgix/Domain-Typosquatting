@@ -1,0 +1,20 @@
+# Generated data / caches (large — do not commit)
+domains.txt
+typosquats.csv
+*.csv
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# IDE / editor
+.idea/
+.vscode/
+
+# Local agent/tooling config
+.claude/

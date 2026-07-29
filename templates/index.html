@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Domain Typosquat Checker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+
+    .card { animation: fadeUp .35s ease both; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .spinner {
+      border: 3px solid #1e293b;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      width: 28px; height: 28px;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .variant-tag {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: .75rem;
+      font-family: monospace;
+      margin: 2px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    .variant-tag:hover { opacity: .75; }
+    .variant-tag.registered { background: #3f1010; color: #fca5a5; border: 1px solid #7f1d1d; }
+    .variant-tag.unregistered { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+    .variant-tag.unknown { background: #1e293b; color: #94a3b8; border: 1px solid #334155; }
+
+    .combo-gradient {
+      background: linear-gradient(135deg, var(--c1) 0%, var(--c2) 100%);
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-10">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center gap-3">
+      <span class="text-2xl">🔍</span>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight">Domain Typosquat Checker</h1>
+        <p class="text-xs text-slate-400">All single &amp; combined squatting techniques</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-10">
+
+    <!-- Search box -->
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl p-8 mb-10 shadow-xl">
+      <label class="block text-sm font-medium text-slate-300 mb-2">Domain to check</label>
+      <div class="flex gap-3 flex-wrap">
+        <input id="domainInput"
+               type="text"
+               placeholder="e.g. google.com"
+               class="flex-1 min-w-0 bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-sm
+                      focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30
+                      placeholder-slate-500 font-mono"
+               autofocus />
+        <button id="checkBtn"
+                onclick="runCheck()"
+                class="px-6 py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700
+                       rounded-xl text-sm font-semibold transition-colors whitespace-nowrap">
+          Check Domain
+        </button>
+      </div>
+
+      <label class="mt-4 flex items-center gap-2 cursor-pointer w-fit group">
+        <input id="dnsToggle" type="checkbox"
+               class="w-4 h-4 rounded accent-blue-500 cursor-pointer" />
+        <span class="text-sm text-slate-400 group-hover:text-slate-200 transition-colors">
+          Also check DNS <span class="text-slate-500">(slower — resolves each variant)</span>
+        </span>
+      </label>
+    </div>
+
+    <!-- Loading -->
+    <div id="loading" class="hidden flex-col items-center gap-4 py-16">
+      <div class="spinner"></div>
+      <p id="loadingMsg" class="text-slate-400 text-sm">Generating variants…</p>
+    </div>
+
+    <!-- Error -->
+    <div id="errorBox" class="hidden bg-red-950 border border-red-700 text-red-300
+                               rounded-xl p-4 text-sm mb-6"></div>
+
+    <!-- Summary bar -->
+    <div id="summary" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-5 mb-8
+                              flex flex-wrap gap-6 items-center">
+      <div>
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Domain</p>
+        <p id="sumDomain" class="font-mono text-blue-400 font-semibold text-lg"></p>
+      </div>
+      <div>
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Total Variants</p>
+        <p id="sumTotal" class="font-bold text-2xl text-white"></p>
+      </div>
+      <div id="sumDnsWrap" class="hidden">
+        <p class="text-xs text-slate-400 uppercase tracking-wider mb-1">Registered (DNS)</p>
+        <p id="sumRegistered" class="font-bold text-2xl text-red-400"></p>
+      </div>
+      <div class="ml-auto flex gap-2 flex-wrap">
+        <button onclick="copyAll()"
+                class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium transition-colors">
+          Copy All Variants
+        </button>
+        <button onclick="downloadCSV()"
+                class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium transition-colors">
+          Download CSV
+        </button>
+      </div>
+    </div>
+
+    <!-- Closest match -->
+    <div id="closestWrap" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-5 mb-8">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <div>
+          <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">
+            Closest Known Domain Match
+          </h2>
+          <p id="closestMeta" class="text-xs text-slate-500 mt-0.5"></p>
+        </div>
+        <button id="searchAllBtn"
+                onclick="searchAllDomains()"
+                class="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded-lg text-xs font-semibold transition-colors">
+          Search all 2.38M domains →
+        </button>
+      </div>
+      <div id="closestList" class="space-y-2"></div>
+    </div>
+
+    <!-- Domain status banner -->
+    <div id="domainStatus" class="hidden rounded-xl p-4 mb-6 text-sm font-medium"></div>
+
+    <!-- Results -->
+    <div id="results" class="hidden">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wider">
+          Single-Technique Attacks
+        </h2>
+        <div id="dnsLegend" class="hidden flex items-center gap-4 text-xs text-slate-400">
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-3 h-3 rounded border-2 border-red-500"></span>
+            Active threat — at least one variant is registered
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-3 h-3 rounded border-2 border-green-500"></span>
+            No registered variants found
+          </span>
+        </div>
+      </div>
+      <div id="singleGrid" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10"></div>
+
+    </div>
+
+  </main>
+
+  <script>
+    let _lastData = null;
+
+    // Enter key submits
+    document.getElementById('domainInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') runCheck();
+    });
+
+    async function runCheck() {
+      const domain  = document.getElementById('domainInput').value.trim();
+      const dnsOn   = document.getElementById('dnsToggle').checked;
+
+      if (!domain) { shake('domainInput'); return; }
+
+      setLoading(true, dnsOn ? 'Generating variants and checking DNS…' : 'Generating variants…');
+      hide('errorBox'); hide('summary'); hide('closestWrap'); hide('domainStatus'); hide('results');
+
+      try {
+        const res  = await fetch('/api/check', {
+          method:  'POST',
+          headers: {'Content-Type': 'application/json'},
+          body:    JSON.stringify({ domain, dns: dnsOn }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unknown error');
+        _lastData = data;
+        render(data);
+      } catch (err) {
+        showError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function render(data) {
+      // Summary
+      document.getElementById('sumDomain').textContent   = data.domain;
+      document.getElementById('sumTotal').textContent    = data.total.toLocaleString();
+      if (data.dns_checked) {
+        document.getElementById('sumRegistered').textContent = data.registered.toLocaleString();
+        show('sumDnsWrap');
+      } else {
+        hide('sumDnsWrap');
+      }
+      show('summary');
+
+      // Domain status banner
+      renderStatus(data);
+
+      // Closest known domain
+      renderClosest(data.closest || []);
+
+      // Legend (only visible when DNS was checked)
+      if (data.dns_checked) show('dnsLegend'); else hide('dnsLegend');
+
+      // Pass entered domain so invalid-domain cards can highlight it
+      const enteredDomain = data.is_known ? null : data.domain;
+
+      // Build a map: technique label → closest known domains that use it
+      const techniqueTargets = {};
+      (data.closest || []).forEach(m => {
+        (m.techniques || []).forEach(t => {
+          if (!techniqueTargets[t]) techniqueTargets[t] = [];
+          techniqueTargets[t].push(m.domain);
+        });
+      });
+
+      // Cards — single techniques only
+      const singleGrid = document.getElementById('singleGrid');
+      singleGrid.innerHTML = '';
+
+      const entries = Object.entries(data.results);
+      entries.forEach(([key, entry], idx) => {
+        if (!entry.combo) singleGrid.appendChild(buildCard(key, entry, data.dns_checked, idx, techniqueTargets, enteredDomain, data.is_known));
+      });
+
+      show('results');
+    }
+
+    function renderStatus(data) {
+      const el = document.getElementById('domainStatus');
+      if (data.is_known) {
+        el.className = 'rounded-xl p-4 mb-6 text-sm font-medium bg-green-950 border border-green-700 text-green-300';
+        el.innerHTML = `✓ <strong>${data.domain}</strong> is present in the verified domain list. `
+          + `All single-technique attack results below are <strong>negative</strong> — `
+          + `these are potential typosquats that could impersonate this domain.`;
+      } else if (data.closest_target) {
+        el.className = 'rounded-xl p-4 mb-6 text-sm font-medium bg-amber-950 border border-amber-700 text-amber-300';
+        el.innerHTML = `⚠ <strong>${data.domain}</strong> is not in the verified list — likely a typosquat. `
+          + `Showing attack variants generated from its closest match: `
+          + `<strong class="text-white font-mono">${data.closest_target}</strong>. `
+          + `The entered domain is <span style="background:#854d0e;color:#fef08a;padding:1px 6px;border-radius:4px;font-family:monospace">${data.domain}</span> highlighted below.`;
+      } else {
+        el.className = 'rounded-xl p-4 mb-6 text-sm font-medium bg-slate-800 border border-slate-600 text-slate-300';
+        el.innerHTML = `<strong>${data.domain}</strong> was not found in the verified list and no close match was found.`;
+      }
+      show('domainStatus');
+    }
+
+    function renderClosest(matches, meta = '') {
+      const wrap = document.getElementById('closestWrap');
+      const list = document.getElementById('closestList');
+      if (!matches.length) { hide('closestWrap'); return; }
+
+      document.getElementById('closestMeta').textContent = meta;
+
+      list.innerHTML = matches.map((m, i) => {
+        const techniques = m.techniques.length
+          ? m.techniques.map(t => `<span class="px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 text-xs">${t}</span>`).join(' ')
+          : `<span class="text-xs text-slate-500">similar name</span>`;
+        const bar = Math.max(0, 100 - m.distance * 15);
+        const rank = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i+1}`;
+        return `
+          <div class="flex items-center gap-4 bg-slate-800 rounded-lg px-4 py-3">
+            <span class="text-lg w-6 shrink-0">${rank}</span>
+            <span class="font-mono text-white font-semibold w-48 shrink-0">${m.domain}</span>
+            <div class="flex-1 bg-slate-700 rounded-full h-1.5 hidden sm:block">
+              <div class="bg-blue-500 h-1.5 rounded-full" style="width:${bar}%"></div>
+            </div>
+            <span class="text-xs text-slate-400 shrink-0">dist&nbsp;${m.distance}</span>
+            <div class="flex gap-1 flex-wrap shrink-0">${techniques}</div>
+          </div>`;
+      }).join('');
+      show('closestWrap');
+    }
+
+    async function searchAllDomains() {
+      const domain = document.getElementById('sumDomain').textContent;
+      if (!domain) return;
+
+      const btn = document.getElementById('searchAllBtn');
+      btn.textContent = 'Searching…';
+      btn.disabled = true;
+      document.getElementById('closestMeta').textContent = 'Searching all 2.38M domains…';
+
+      try {
+        const res  = await fetch('/api/closest', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ domain }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error');
+        const meta = `Searched ${data.searched.toLocaleString()} domains in ${data.elapsed}s`;
+        renderClosest(data.closest, meta);
+        btn.textContent = '✓ Full search done';
+      } catch (err) {
+        document.getElementById('closestMeta').textContent = '⚠ ' + err.message;
+        btn.textContent = 'Search all 2.38M domains →';
+        btn.disabled = false;
+      }
+    }
+
+    function buildCard(key, entry, dnsChecked, delay, techniqueTargets = {}, enteredDomain = null, isKnown = true) {
+      const dns = entry.dns || {};
+      const registeredCount = dnsChecked ? Object.values(dns).filter(Boolean).length : 0;
+
+      // Border logic: for known domains, all cards are "negative" (green); for unknown, use DNS or default
+      let borderClass = 'border border-slate-700';
+      if (isKnown) {
+        borderClass = 'border-2 border-green-700';
+      } else if (dnsChecked) {
+        borderClass = registeredCount > 0 ? 'border-2 border-red-500' : 'border-2 border-green-500';
+      }
+
+      const div = document.createElement('div');
+      div.className = `card bg-slate-900 ${borderClass} rounded-xl overflow-hidden shadow-lg`;
+      div.style.animationDelay = `${delay * 0.04}s`;
+
+      // Sort: entered domain first, then registered, then the rest
+      const sorted = [...entry.variants].sort((a, b) => {
+        if (a === enteredDomain) return -1;
+        if (b === enteredDomain) return 1;
+        if (dnsChecked) return (dns[b] ? 1 : 0) - (dns[a] ? 1 : 0);
+        return 0;
+      });
+
+      const tags = sorted.map(v => {
+        const isEntered  = v === enteredDomain;
+        const hit        = dns[v];
+        const style = isEntered
+          ? 'background:#713f12;color:#fef08a;border:2px solid #ca8a04;font-weight:700;font-size:.75rem'
+          : hit === true
+            ? 'background:#4c0519;color:#fca5a5;border:1px solid #f87171;font-weight:700;font-size:.75rem'
+            : 'background:#1e293b;color:#475569;border:1px solid #1e293b;font-size:.68rem;opacity:0.5';
+        const title = isEntered ? 'This is the domain you entered'
+                    : hit === true ? 'Registered — resolves via DNS' : '';
+        return `<span style="${style};display:inline-block;padding:2px 7px;border-radius:4px;
+                             font-family:monospace;margin:2px"
+                      title="${title}">${v}${isEntered ? ' ◀' : ''}</span>`;
+      }).join('');
+
+      const targets = techniqueTargets[entry.label] || [];
+      const targetBanner = targets.length
+        ? `<div class="flex items-center gap-2 mb-3 px-3 py-2 rounded-lg"
+                style="background:${entry.color}22;border:1px solid ${entry.color}66">
+             <span class="text-xs font-bold" style="color:${entry.color}">⚠ Squatting target:</span>
+             ${targets.map(d => `<span class="font-mono text-xs font-semibold text-white">${d}</span>`).join('<span class="text-slate-600 text-xs">,</span>')}
+           </div>`
+        : '';
+
+      const negativeBadge = isKnown
+        ? `<span class="text-xs font-semibold text-green-400">✓ Negative — no squatting detected via this technique</span>`
+        : '';
+
+      div.innerHTML = `
+        <div class="h-1" style="background:${entry.color}"></div>
+        <div class="p-5">
+          <h3 class="font-semibold text-sm text-white mb-1">${entry.label}</h3>
+          <p class="text-xs text-slate-400 mb-1">${entry.description}</p>
+          <p class="text-xs text-slate-500 font-mono mb-3">e.g. ${entry.example}</p>
+          ${targetBanner}
+          ${negativeBadge ? `<div class="mb-3">${negativeBadge}</div>` : ''}
+          <div class="leading-6">${tags}</div>
+        </div>`;
+
+      return div;
+    }
+
+    function copyAll() {
+      if (!_lastData) return;
+      const all = new Set();
+      Object.values(_lastData.results).forEach(e => e.variants.forEach(v => all.add(v)));
+      navigator.clipboard.writeText([...all].sort().join('\n'));
+      flash('Copied all variants!');
+    }
+
+    function downloadCSV() {
+      if (!_lastData) return;
+      const rows = ['original,technique,variant'];
+      Object.entries(_lastData.results).forEach(([, entry]) => {
+        entry.variants.forEach(v => {
+          rows.push(`"${_lastData.domain}","${entry.label}","${v}"`);
+        });
+      });
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement('a'), {
+        href: url, download: `typosquats-${_lastData.domain}.csv`
+      });
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function flash(msg) {
+      const el = document.createElement('div');
+      el.className = 'fixed bottom-6 right-6 bg-green-700 text-white text-sm px-4 py-2 rounded-xl shadow-xl';
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2000);
+    }
+
+    function showError(msg) {
+      const box = document.getElementById('errorBox');
+      box.textContent = '⚠ ' + msg;
+      show('errorBox');
+    }
+
+    function setLoading(on, msg = '') {
+      const el = document.getElementById('loading');
+      if (on) {
+        document.getElementById('loadingMsg').textContent = msg;
+        el.classList.remove('hidden');
+        el.classList.add('flex');
+        document.getElementById('checkBtn').disabled = true;
+      } else {
+        el.classList.add('hidden');
+        el.classList.remove('flex');
+        document.getElementById('checkBtn').disabled = false;
+      }
+    }
+
+    function show(id)  { document.getElementById(id)?.classList.remove('hidden'); }
+    function hide(id)  { document.getElementById(id)?.classList.add('hidden'); }
+
+    function shake(id) {
+      const el = document.getElementById(id);
+      el.classList.add('ring-2', 'ring-red-500');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-red-500'), 1000);
+    }
+  </script>
+</body>
+</html>
