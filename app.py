@@ -32,6 +32,8 @@ _CANDIDATES = [
         Path(os.environ["DOMAINS_FILE"]) if os.environ.get("DOMAINS_FILE") else None,
         _BASE / "domains.txt",
         _BASE / "data" / "domains_top.txt",
+        Path.cwd() / "domains.txt",
+        Path.cwd() / "data" / "domains_top.txt",
     ) if p is not None
 ]
 
