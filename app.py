@@ -1,3 +1,4 @@
+import os
 import socket
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,18 +19,40 @@ DNS_MAX_BATCH = 600
 DNS_WORKERS   = 120
 KNOWN_LIMIT   = 10_000   # quick preview pool (top domains)
 
-# Load ALL domains once at startup and build a length index for fast lookup
+# Resolve paths relative to this file so the app works regardless of the
+# process working directory (e.g. Vercel / other serverless runtimes).
+_BASE = Path(__file__).resolve().parent
+
+# Candidate domain-list locations, in priority order:
+#   1. DOMAINS_FILE env var (explicit override)
+#   2. domains.txt          (full local cache, gitignored — used in dev)
+#   3. data/domains_top.txt (trimmed top list committed to the repo — used in prod)
+_CANDIDATES = [
+    p for p in (
+        Path(os.environ["DOMAINS_FILE"]) if os.environ.get("DOMAINS_FILE") else None,
+        _BASE / "domains.txt",
+        _BASE / "data" / "domains_top.txt",
+    ) if p is not None
+]
+
+# Load domains once at startup and build a length index + rank map for fast lookup.
+# Always defined (possibly empty) so request handlers never hit a NameError.
 _KNOWN_DOMAINS: list[str] = []
 _ALL_DOMAINS:   list[str] = []
 _LENGTH_INDEX:  dict      = {}
-_CACHE = Path("domains.txt")
-if _CACHE.exists():
-    print("Loading domain list …", end=" ", flush=True)
-    _ALL_DOMAINS   = _CACHE.read_text(encoding="utf-8").splitlines()
+_DOMAIN_RANK:   dict      = {}
+
+_CACHE = next((p for p in _CANDIDATES if p.exists()), None)
+if _CACHE is not None:
+    print(f"Loading domain list from {_CACHE} …", end=" ", flush=True)
+    _ALL_DOMAINS   = [d for d in _CACHE.read_text(encoding="utf-8").splitlines() if d]
     _KNOWN_DOMAINS = _ALL_DOMAINS[:KNOWN_LIMIT]
     _LENGTH_INDEX  = squatter.build_length_index(_ALL_DOMAINS)
     _DOMAIN_RANK   = {d: i for i, d in enumerate(_ALL_DOMAINS)}
     print(f"{len(_ALL_DOMAINS):,} domains loaded, length index + rank map built.")
+else:
+    print("WARNING: no domain list found — closest-match lookups will be empty. "
+          "Set DOMAINS_FILE or add data/domains_top.txt.")
 
 
 def _dns_exists(domain: str) -> bool:
